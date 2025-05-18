@@ -194,7 +194,7 @@ void collect_nodes_with_occ(ABRnois a, int target_occ, Liste *lst) {
     }
     if (a->nb_occ == target_occ) {
         add_to_list_sorted(lst, a);
-    }else return ;
+    }
      // In-order traversal
     collect_nodes_with_occ(a->fg, target_occ, lst);
 
@@ -203,14 +203,12 @@ void collect_nodes_with_occ(ABRnois a, int target_occ, Liste *lst) {
 
 // Function to extract elements with the highest occurrence into a list
 // Returns the maximum occurrence count, or -1 if the tree is empty.
-int extrait_priorite_max(ABRnois * A, Liste * lst) {
+int extrait_priorite_max(ABRnois * A, Liste * lst, int priorite_max){
     *lst = NULL; // Initialize the list to empty
 
     if (*A == NULL) {
         return 0; // Indicate empty tree
     }
-
-    int priorite_max = (*A)->nb_occ;
 
     if (priorite_max > 0) { // Only collect if max occurrence is positive
         collect_nodes_with_occ(*A, priorite_max, lst);
@@ -223,16 +221,19 @@ int extrait_priorite_max(ABRnois * A, Liste * lst) {
 
 
 // Function to print the contents of the list
-void print_list(Liste lst) {
+int print_list(Liste lst) {
     printf("List of nodes with target occurrence (from root):\n");
+    int t = 0;
     Cell *current = lst;
     while (current != NULL) {
         printf("  - Word: %s, Occurrences: %d\n", current->n->mot, current->n->nb_occ);
         current = current->suivant;
+        t++;
     }
     if (lst == NULL) {
         printf("  (List is empty)\n");
     }
+    return t;
 }
 
 // Function to free the memory allocated for the list cells
@@ -248,54 +249,100 @@ void libere_liste(Liste lst) {
     }
 }
 
+
+void writeFrequentToFile(Liste lst, FILE *f, int totalWords) {
+    if (!f) {
+        perror("Erreur ouverture fichier");
+        return;
+    }
+
+    for (Liste tmp = lst; tmp != NULL; tmp = tmp->suivant) {
+        double percentage = (tmp->n->nb_occ / (double)totalWords) * 100.0;
+        fprintf(f, "%s %.2f%%\n", tmp->n->mot, percentage);
+    }
+}
 // Fonction principale
-int main() {
+int main(int argc, char *argv[]) {
+    int total_n = 0;
+    int highest_occ = 0;
+    printf("arvg[1] : %s\n", argv[1]);
+    FILE *frequent = fopen(argv[1], "w");
+
     ABRnois racine = NULL; // Start with an empty tree
-    Liste max_occ_list = NULL;
-    int extracted_count;
+    int indice = 1;
+    int pad = 0
+    if(strcmp(argv[argc -1], "-g") == 0){
+       pad++;
+    }
+    if(strcmp(argv[argc - 2], "-n") == 0){
+        pad++;
+    }
+    while (indice + 1 < argc - pad) {
+    FILE *f = fopen(argv[indice + 1], "r");
+    if (!f) {
+        printf("Error opening file %s\n", argv[indice + 1]);
+        return 1;
+    }
 
-    printf("Inserting words...\n");
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        // Remove newline character at the end of the line
+        line[strcspn(line, "\n")] = '\0';
 
-    // Insert words to create a tree with varying occurrences
-    insert_ABRnois(&racine, "apple"); // occ 1
-    insert_ABRnois(&racine, "banana"); // occ 1
-    insert_ABRnois(&racine, "apple"); // occ 2
-    insert_ABRnois(&racine, "cherry"); // occ 1
-    insert_ABRnois(&racine, "date"); // occ 1
-    insert_ABRnois(&racine, "banana"); // occ 2
-    insert_ABRnois(&racine, "fig"); // occ 1
-    insert_ABRnois(&racine, "grape"); // occ 1
-    insert_ABRnois(&racine, "apple"); // occ 3 (root)
-    insert_ABRnois(&racine, "date"); // occ 2
-    insert_ABRnois(&racine, "fig"); // occ 2
-    insert_ABRnois(&racine, "banana"); // occ 3
+        char *token = strtok(line, " ");
+        while (token) {
+            // Convert the word to lowercase
+            for (char *p = token; *p; p++) {
+                *p = tolower(*p);
+            }
+            // Insert the word into the ABR
+            insert_ABRnois(&racine, token);
+            total_n++;
+            // option -g
+            if(strcmp(argv[argc - 1], "-g") == 0){
+                char filename[256];
+                snprintf(filename, sizeof(filename), "insertion%d.pdf", total_n);
+                exporte_arbre(filename, racine);
+            }
+            // Get the next token
+            token = strtok(NULL, " ");
+        }
+    }
 
-    printf("Finished insertions.\n");
+    fclose(f);
+    indice += 1;
+}
+
     exporte_arbre("final_tree.pdf", racine);
-    printf("Final tree exported to final_tree.pdf\n");
 
-    // The root node should be "apple" with occ 3 based on the insertion order and balancing.
-    // Let's verify the root's occurrence before calling the function.
-    if (racine != NULL) {
-        printf("\nRoot node: %s, Occurrence: %d\n", racine->mot, racine->nb_occ);
-    } else {
-        printf("\nTree is empty.\n");
+    Liste lst = NULL;
+    highest_occ = extrait_priorite_max(&racine, &lst, racine->nb_occ);
+    printf("highrdt_occ = %d\n", highest_occ);
+    printf("total_n = %d\n", total_n);
+    // Print the list of words with their frequencies
+    int p ;
+    if(strcmp(argv[argc - 2], "-n") == 0){
+        p = (int )argv[argc - 2];
     }
+    while(racine){
+        libere_liste(lst);
+        if(highest_occ == 0) break;
+        lst = NULL;
+        extrait_priorite_max(&racine, &lst, highest_occ);
+        int t = print_list(lst);
+        if(strcmp(argv[argc - 2], "-n") == 0){
+            if(p > 0){
+                writeFrequentToFile(lst, frequent, total_n);
+                p -= t;
+            }
+            else
+                break;
+        }else
+            writeFrequentToFile(lst, frequent, total_n);
+        highest_occ--;
 
-
-    // Extract nodes with the root's occurrence
-    extracted_count = extrait_priorite_max(&racine, &max_occ_list);
-
-    if (extracted_count > 0) {
-        printf("\nNumber of nodes extracted with root's occurrence (%d): %d\n", racine->nb_occ, extracted_count);
-        print_list(max_occ_list);
-    } else {
-        printf("\nNo nodes extracted with the root's occurrence, or tree is empty.\n");
     }
-
-
-    // Libération mémoire
-    libere_liste(max_occ_list); // Free the list cells
+    fclose(frequent);
     libere_arbre(racine); // Free the tree nodes
     printf("\nMemory freed.\n");
 
