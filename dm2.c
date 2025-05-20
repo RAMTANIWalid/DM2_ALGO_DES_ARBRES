@@ -1,23 +1,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+
+// Structures
 
 typedef struct _noeud {
-    char * mot;
+    char *mot;
     int nb_occ;
-    struct _noeud * fg, * fd;
-} Noeud, * ABRnois;
-
-
+    struct _noeud *fg, *fd;
+} Noeud, *ABRnois;
 
 typedef struct _cell {
-    Noeud * n ;
-    struct _cell * suivant ;
-} Cell , * Liste;
+    Noeud *n;
+    struct _cell *suivant;
+} Cell, *Liste;
 
+// Fonctions de base
 
-// Alloue un nouveau noeud
-Noeud * alloue_noeud(char * mot) {
+Noeud *alloue_noeud(char *mot) {
     Noeud *n = malloc(sizeof(Noeud));
     if (!n) return NULL;
     n->mot = malloc(strlen(mot) + 1);
@@ -27,19 +28,236 @@ Noeud * alloue_noeud(char * mot) {
     }
     strcpy(n->mot, mot);
     n->nb_occ = 1;
-    n->fg = NULL;
-    n->fd = NULL;
+    n->fg = n->fd = NULL;
     return n;
 }
 
-// Libère la mémoire allouée pour l'arbre
+Cell *alloue_cell(Noeud *n) {
+    Cell *c = malloc(sizeof(Cell));
+    Noeud *tmp = alloue_noeud(n->mot);
+    if (!c) return NULL;
+    c->n = tmp;
+    c->n->nb_occ = n->nb_occ;
+    c->suivant = NULL;
+    return c;
+}
+
+void libererNoeud(Noeud *n) {
+    if (n) {
+        free(n->mot);
+        free(n);
+    }
+}
+
+void libere_liste(Liste lst) {
+    Cell *courant = lst;
+    while (courant) {
+        Cell *temp = courant;
+        courant = courant->suivant;
+        free(temp);
+    }
+}
+
 void libere_arbre(ABRnois a) {
     if (!a) return;
     libere_arbre(a->fg);
     libere_arbre(a->fd);
-    free(a->mot);
-    free(a);
+    libererNoeud(a);
 }
+
+// Rotations
+
+void rotation_gauche(ABRnois *r) {
+    Noeud *d = (*r)->fd;
+    (*r)->fd = d->fg;
+    d->fg = *r;
+    *r = d;
+}
+
+void rotation_droite(ABRnois *r) {
+    Noeud *g = (*r)->fg;
+    (*r)->fg = g->fd;
+    g->fd = *r;
+    *r = g;
+}
+
+// Insertion
+ABRnois insererABRnois(ABRnois arbre, char *mot, int nb_occ) {
+    if (!arbre) {
+        Noeud *n = alloue_noeud(mot);
+        if (n) n->nb_occ = nb_occ;
+        return n;
+    }
+    int cmp = strcmp(mot, arbre->mot);
+    if (cmp < 0) {
+        arbre->fg = insererABRnois(arbre->fg, mot, nb_occ);
+    } else if (cmp > 0) {
+        arbre->fd = insererABRnois(arbre->fd, mot, nb_occ);
+    } else {
+        arbre->nb_occ += nb_occ;
+    }
+    if (arbre->fd && arbre->fd->nb_occ > arbre->nb_occ) {
+        rotation_gauche(&arbre);
+    }
+    if (arbre->fg && arbre->fg->nb_occ > arbre->nb_occ) {
+        rotation_droite(&arbre);
+    }
+    return arbre;
+}
+
+int insert_ABRnois(ABRnois *A, char *mot) {
+    if (!A || !mot) return 0;
+    *A = insererABRnois(*A, mot, 1);
+    return 1;
+}
+
+
+// Suppression
+
+ABRnois descendreNoeud(ABRnois *arbre, char *mot) {
+    if (!*arbre) return NULL;
+    int cmp = strcmp(mot, (*arbre)->mot);
+    if (cmp == 0) {
+        if ((*arbre)->fg && (*arbre)->fd) {
+            if ((*arbre)->fg->nb_occ >= (*arbre)->fd->nb_occ) {
+                rotation_droite(arbre);
+                (*arbre)->fd = descendreNoeud(&(*arbre)->fd, mot);
+            } else {
+                rotation_gauche(arbre);
+                (*arbre)->fg = descendreNoeud(&(*arbre)->fg, mot);
+            }
+        } else if ((*arbre)->fg) {
+            rotation_droite(arbre);
+            (*arbre)->fd = descendreNoeud(&(*arbre)->fd, mot);
+        } else if ((*arbre)->fd) {
+            rotation_gauche(arbre);
+            (*arbre)->fg = descendreNoeud(&(*arbre)->fg, mot);
+        } else {
+            libererNoeud(*arbre);
+            *arbre = NULL;
+        }
+        return *arbre;
+    } else if (cmp < 0) {
+        (*arbre)->fg = descendreNoeud(&(*arbre)->fg, mot);
+    } else {
+        (*arbre)->fd = descendreNoeud(&(*arbre)->fd, mot);
+    }
+    return *arbre;
+}
+
+ABRnois supprimerABRnois(ABRnois *arbre, char *mot) {
+    return descendreNoeud(arbre, mot);
+}
+
+// Analyse
+
+int trouver_max_occ(ABRnois A) {
+    if (!A) return 0;
+    int max = A->nb_occ;
+    int g = trouver_max_occ(A->fg);
+    int d = trouver_max_occ(A->fd);
+    if (g > max) max = g;
+    if (d > max) max = d;
+    return max;
+}
+
+void collecter_noeuds(ABRnois A, int nb_occ, Liste *lst) {
+    if (!A) return;
+    if (A->nb_occ == nb_occ) {
+        Cell *c = alloue_cell(A);
+        if (c) {
+            c->suivant = *lst;
+            *lst = c;
+        }
+    }
+    collecter_noeuds(A->fg, nb_occ, lst);
+    collecter_noeuds(A->fd, nb_occ, lst);
+}
+
+void trier_liste(Liste *lst) {
+    if (!*lst || !(*lst)->suivant) return;
+    for (Cell *i = *lst; i->suivant; i = i->suivant) {
+        for (Cell *j = i->suivant; j; j = j->suivant) {
+            if (strcmp(i->n->mot, j->n->mot) > 0) {
+                Noeud *tmp = i->n;
+                i->n = j->n;
+                j->n = tmp;
+            }
+        }
+    }
+}
+
+int longueur_liste(Liste lst) {
+    int len = 0;
+    while (lst) {
+        len++;
+        lst = lst->suivant;
+    }
+    return len;
+}
+
+
+
+int print_list(Liste lst) {
+    printf("List of nodes with target occurrence (from root):\n");
+    int t = 0;
+    Cell *current = lst;
+    while (current != NULL) {
+        printf("  - Word: %s, Occurrences: %d\n", current->n->mot, current->n->nb_occ);
+        current = current->suivant;
+        t++;
+    }
+    if (lst == NULL) {
+        printf("  (List is empty)\n");
+    }
+    return t;
+}
+void writeFrequentToFile(Liste lst, FILE *f, int totalWords) {
+    if (!f) {
+        perror("Erreur ouverture fichier");
+        return;
+    }
+    for (Liste tmp = lst; tmp != NULL; tmp = tmp->suivant) {
+        float percentage = (tmp->n->nb_occ * 100/ (float)totalWords);
+        fprintf(f, "%s %.2f%\n", tmp->n->mot, percentage);
+    }
+}
+
+int extrait_priorite_max(ABRnois *A, Liste *lst) {
+    if (!A || !(*A)) return 0;
+    int max_occ = (*A)->nb_occ;
+    if (max_occ == 0) return 0;
+    *lst = NULL;
+
+    collecter_noeuds(*A, max_occ, lst);
+    trier_liste(lst);
+    for (Cell *c = *lst; c != NULL; c = c->suivant){
+        // Exporte l'arbre en PDF
+        supprimerABRnois(A, c->n->mot);
+    
+    }
+    return max_occ;
+}
+
+
+
+/**
+ * Cherche si un texte est présent dans argv (à partir de l'index 1).
+ * @param argc Nombre d'éléments dans argv.
+ * @param argv Tableau de chaînes de caractères.
+ * @param text Chaîne de caractères à chercher.
+ * @return L'index de la chaîne de caractères dans argv si elle est trouvée, 0 sinon.
+ */
+int text_in_argv(int argc, char *argv[], const char *text) {
+    // On commence à 1 car argv[0] est généralement le nom du programme
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], text) == 0) {
+            return i; // Trouvé
+        }
+    }
+    return 0; // Non trouvé
+}
+
 
 // Partie dot (graphviz)
 void ecrireDebut(FILE *f) {
@@ -104,244 +322,75 @@ int exporte_arbre(char *nom_pdf, ABRnois A) {
 }
 
 
-void rotation_gauche(ABRnois * r) {
-// Effectue une rotation gauche sur l'arbre binaire A.
-    Noeud *d = (*r)->fd;
-    (*r)->fd = d->fg;
-    d->fg = *r;
-    *r = d;
-}
-
-
-void *rotation_droite(ABRnois * r) {
-// Effectue une rotation droite sur l'arbre binaire A.
-    Noeud *g = (*r)->fg;
-    (*r)->fg = g->fd;
-    g->fd = *r;
-    *r = g;
-}
-
-
-
-// Inserts a word into the binary search tree.
-// If the word does not exist in the tree, it is added as a new node.
-// If the word already exists, its occurrence count is incremented.
-// Performs left or right rotations if necessary to maintain tree balance.
-// Returns 1 if a new node is inserted, 0 if the word already existed.
-
-int insert_ABRnois(ABRnois * A, char * mot) {
-    if (*A == NULL) {
-        *A = alloue_noeud(mot);
-        return 1;
-    } else if (strcmp(mot, (*A)->mot) < 0) {
-        int res = insert_ABRnois(&(*A)->fg, mot);
-        if(res == 1) {
-            if((*A)->fg &&(*A)->nb_occ < (*A)->fg->nb_occ) {
-                rotation_droite(&(*A));
-                return 1;
-            }else {
-                return res;
-            }
-        }
-    } else if (strcmp(mot, (*A)->mot) > 0) {
-        int res = insert_ABRnois(&(*A)->fd, mot);
-        if(res == 1) {
-            if((*A)->fd &&(*A)->nb_occ < (*A)->fd->nb_occ) {
-                rotation_gauche(&(*A));
-                return 1;
-            }
-            else {
-                return res;
-            }
-        }
-    } else {
-        (*A)->nb_occ++;
-        return 1;
-    }
-}
-
-
-
-
-void add_to_list_sorted(Liste *lst, Noeud *node) {
-    Cell *new_cell = malloc(sizeof(Cell));
-    if (!new_cell) return; // Handle allocation failure
-
-    new_cell->n = node;
-    new_cell->suivant = NULL; // Initialize next pointer
-
-    // Case 1: List is empty or new node should be the new head
-    if (*lst == NULL || strcmp(node->mot, (*lst)->n->mot) < 0) {
-        new_cell->suivant = *lst;
-        *lst = new_cell;
-        return;
-    }
-
-    // Case 2: Find the correct position to insert
-    Cell *current = *lst;
-    while (current->suivant != NULL && strcmp(node->mot, current->suivant->n->mot) >= 0) {
-        current = current->suivant;
-    }
-
-    // Insert the new node
-    new_cell->suivant = current->suivant;
-    current->suivant = new_cell;
-}
-// Helper function to collect nodes with a target occurrence count
-void collect_nodes_with_occ(ABRnois a, int target_occ, Liste *lst) {
-    if (a == NULL) {
-        return;
-    }
-    if (a->nb_occ == target_occ) {
-        add_to_list_sorted(lst, a);
-    }
-     // In-order traversal
-    collect_nodes_with_occ(a->fg, target_occ, lst);
-
-    collect_nodes_with_occ(a->fd, target_occ, lst);
-}
-
-// Function to extract elements with the highest occurrence into a list
-// Returns the maximum occurrence count, or -1 if the tree is empty.
-int extrait_priorite_max(ABRnois * A, Liste * lst, int priorite_max){
-    *lst = NULL; // Initialize the list to empty
-
-    if (*A == NULL) {
-        return 0; // Indicate empty tree
-    }
-
-    if (priorite_max > 0) { // Only collect if max occurrence is positive
-        collect_nodes_with_occ(*A, priorite_max, lst);
-    }
-
-    return priorite_max;
-}
-
-
-
-
-// Function to print the contents of the list
-int print_list(Liste lst) {
-    printf("List of nodes with target occurrence (from root):\n");
-    int t = 0;
-    Cell *current = lst;
-    while (current != NULL) {
-        printf("  - Word: %s, Occurrences: %d\n", current->n->mot, current->n->nb_occ);
-        current = current->suivant;
-        t++;
-    }
-    if (lst == NULL) {
-        printf("  (List is empty)\n");
-    }
-    return t;
-}
-
-// Function to free the memory allocated for the list cells
-void libere_liste(Liste lst) {
-    Cell *current = lst;
-    Cell *next;
-    while (current != NULL) {
-        next = current->suivant;
-        // Note: We do NOT free current->n->mot or current->n
-        // because these nodes belong to the tree and will be freed by libere_arbre.
-        free(current);
-        current = next;
-    }
-}
-
-
-void writeFrequentToFile(Liste lst, FILE *f, int totalWords) {
-    if (!f) {
-        perror("Erreur ouverture fichier");
-        return;
-    }
-
-    for (Liste tmp = lst; tmp != NULL; tmp = tmp->suivant) {
-        double percentage = (tmp->n->nb_occ / (double)totalWords) * 100.0;
-        fprintf(f, "%s %.2f%%\n", tmp->n->mot, percentage);
-    }
-}
 // Fonction principale
 int main(int argc, char *argv[]) {
     int total_n = 0;
     int highest_occ = 0;
-    printf("arvg[1] : %s\n", argv[1]);
     FILE *frequent = fopen(argv[1], "w");
 
     ABRnois racine = NULL; // Start with an empty tree
     int indice = 1;
-    int pad = 0
-    if(strcmp(argv[argc -1], "-g") == 0){
+    int pad = 0;
+    int g, n, p = 1;
+    g = text_in_argv(argc, argv, "-g");
+    if(g){
        pad++;
     }
-    if(strcmp(argv[argc - 2], "-n") == 0){
+    n = text_in_argv(argc, argv, "-n");
+    if(n){
+        p = atoi(argv[n + 1]);
+        printf("%d\n", p);
         pad++;
-    }
+        pad++;
+     }
     while (indice + 1 < argc - pad) {
-    FILE *f = fopen(argv[indice + 1], "r");
-    if (!f) {
-        printf("Error opening file %s\n", argv[indice + 1]);
-        return 1;
-    }
-
-    char line[1024];
-    while (fgets(line, sizeof(line), f)) {
-        // Remove newline character at the end of the line
-        line[strcspn(line, "\n")] = '\0';
-
-        char *token = strtok(line, " ");
-        while (token) {
-            // Convert the word to lowercase
-            for (char *p = token; *p; p++) {
-                *p = tolower(*p);
-            }
-            // Insert the word into the ABR
-            insert_ABRnois(&racine, token);
-            total_n++;
-            // option -g
-            if(strcmp(argv[argc - 1], "-g") == 0){
-                char filename[256];
-                snprintf(filename, sizeof(filename), "insertion%d.pdf", total_n);
-                exporte_arbre(filename, racine);
-            }
-            // Get the next token
-            token = strtok(NULL, " ");
+        FILE *f = fopen(argv[indice + 1], "r");
+        if (!f) {
+            printf("Error opening file %s\n", argv[indice + 1]);
+            return 1;
         }
-    }
 
-    fclose(f);
-    indice += 1;
-}
+        char line[1024];
+        while (fgets(line, sizeof(line), f)) {
+            // Remove newline character at the end of the line
+            line[strcspn(line, "\n")] = '\0';
 
-    exporte_arbre("final_tree.pdf", racine);
-
-    Liste lst = NULL;
-    highest_occ = extrait_priorite_max(&racine, &lst, racine->nb_occ);
-    printf("highrdt_occ = %d\n", highest_occ);
-    printf("total_n = %d\n", total_n);
-    // Print the list of words with their frequencies
-    int p ;
-    if(strcmp(argv[argc - 2], "-n") == 0){
-        p = (int )argv[argc - 2];
-    }
-    while(racine){
-        libere_liste(lst);
-        if(highest_occ == 0) break;
-        lst = NULL;
-        extrait_priorite_max(&racine, &lst, highest_occ);
-        int t = print_list(lst);
-        if(strcmp(argv[argc - 2], "-n") == 0){
-            if(p > 0){
-                writeFrequentToFile(lst, frequent, total_n);
-                p -= t;
+            char *token = strtok(line, " ");
+            while (token) {
+                // Convert the word to lowercase
+                for (char *p = token; *p; p++) {
+                    *p = tolower(*p);
+                }
+                // Insert the word into the ABR
+                insert_ABRnois(&racine, token);
+                total_n++;
+                // option -g
+                if(g){
+                    char filename[256];
+                    snprintf(filename, sizeof(filename), "insertion%d.pdf", total_n);
+                    exporte_arbre(filename, racine);
+                }
+                // Get the next token
+                token = strtok(NULL, " ");
             }
-            else
-                break;
-        }else
-            writeFrequentToFile(lst, frequent, total_n);
-        highest_occ--;
+        }
 
+        fclose(f);
+        indice += 1;
     }
+    exporte_arbre("final_tree.pdf", racine);
+    while(racine && p > 0){
+        Liste lst = NULL;
+        int priorite = extrait_priorite_max(&racine, &lst);
+        print_list(lst);
+        int len = longueur_liste(lst);
+        if (n)
+            p -= len;
+        writeFrequentToFile(lst, frequent, total_n);
+        libere_liste(lst);
+    }
+
+
     fclose(frequent);
     libere_arbre(racine); // Free the tree nodes
     printf("\nMemory freed.\n");
